@@ -6,6 +6,7 @@
 #include "freertos/task.h"
 
 #include "driver/touch_pad.h"
+#include "driver/gpio.h"
 
 #include "tensorflow/lite/micro/micro_interpreter.h"
 #include "tensorflow/lite/micro/micro_mutable_op_resolver.h"
@@ -60,6 +61,19 @@ static bool buffer_ready = false;
 // Baselines de calibração
 static uint16_t baseline1 = 0;
 static uint16_t baseline2 = 0;
+
+// LED
+#define LED_BUILTIN GPIO_NUM_2
+
+static bool led_state = false;
+
+static bool blink_active = false;
+static int blink_remaining = 0;
+
+static uint32_t last_blink_time = 0;
+static bool blink_led_state = false;
+
+static bool hold_blink_mode = false;
 
 // ======================================================
 // Parâmetros do scaler
@@ -138,6 +152,10 @@ void setup() {
 
   input = interpreter->input(0);
   output = interpreter->output(0);
+
+  gpio_reset_pin(LED_BUILTIN);
+  gpio_set_direction(LED_BUILTIN, GPIO_MODE_OUTPUT);
+  gpio_set_level(LED_BUILTIN, 0);
 
   MicroPrintf("Setup complete. Monitorando dados brutos...");
 }
@@ -293,6 +311,37 @@ void run_inference() {
     MicroPrintf(
         "Gesto Confirmado: %s",
         labels[classe_estabilizada]);
+
+    switch (classe_estabilizada) {
+      case 1:  // one_touch
+        hold_blink_mode = false;
+
+        blink_active = true;
+        blink_remaining = 2;
+
+        break;
+
+      case 2:  // two_touch
+        hold_blink_mode = false;
+
+        blink_active = true;
+        blink_remaining = 4;
+
+        break;
+
+      case 3:  // hold_touch
+        hold_blink_mode = true;
+        break;
+
+      default:
+        hold_blink_mode = false;
+
+        gpio_set_level(
+            LED_BUILTIN,
+            led_state);
+
+        break;
+    }
   }
 }
 
@@ -326,6 +375,44 @@ void loop() {
   // Executa inferência a cada 3 amostras (~150 ms)
   if (buffer_ready && (buffer_index % 3 == 0)) {
     run_inference();
+  }
+
+  uint32_t now = xTaskGetTickCount();
+
+  if (hold_blink_mode) {
+    if ((now - last_blink_time) >= pdMS_TO_TICKS(100)) {
+      last_blink_time = now;
+
+      blink_led_state = !blink_led_state;
+
+      gpio_set_level(
+          LED_BUILTIN,
+          blink_led_state);
+    }
+  }
+
+  else if (blink_active) {
+    if ((now - last_blink_time) >= pdMS_TO_TICKS(250)) {
+      last_blink_time = now;
+
+      blink_led_state = !blink_led_state;
+
+      gpio_set_level(
+          LED_BUILTIN,
+          blink_led_state);
+
+      blink_remaining--;
+
+      if (blink_remaining <= 0) {
+        blink_active = false;
+
+        blink_led_state = false;
+
+        gpio_set_level(
+            LED_BUILTIN,
+            led_state);
+      }
+    }
   }
 
   vTaskDelay(pdMS_TO_TICKS(50));
