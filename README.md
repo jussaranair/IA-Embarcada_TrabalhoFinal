@@ -250,6 +250,5 @@ Principais características:
 
 # Autoras
 
-Andreia Nunes
+Andreia Nunes;
 Jussara André
-Projeto acadêmico de TinyML utilizando ESP32.
